@@ -1,0 +1,169 @@
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
+
+/**
+ * Abstract interface for the agent's wallet.
+ * Supports EIP-712 signing for the x402 protocol.
+ */
+export interface AgentWallet {
+    address: `0x${string}`;
+    signTypedData: (data: {
+        domain: any;
+        types: any;
+        primaryType: string;
+        message: any;
+    }) => Promise<string>;
+}
+
+/**
+ * Creates a LangChain tool for the Tag-per-Track audio analysis service.
+ * This tool manages the full x402 payment challenge-response cycle.
+ * 
+ * @param agentWallet The wallet used to sign the x402 payment proof.
+ * @param apiUrl The endpoint of the Tag-per-Track API.
+ * @returns A DynamicStructuredTool ready to be used by an AI Agent.
+ */
+export const createTagPerTrackTool = (agentWallet: AgentWallet, apiUrl: string = "https://api.tag-per-track.cloud/api/analyze") => {
+    return new DynamicStructuredTool({
+        name: "analyze_music_track",
+        description:
+            "Analyzes a music track or audio file to extract advanced metadata like BPM, genre, mood, and key. " +
+            "Provide the URL of the audio file (.mp3, .wav, .ogg). " +
+            "Note: This tool automatically executes a micro-payment (0.05 USDC) via the x402 protocol " +
+            "using the agent's wallet signature.",
+
+        schema: z.object({
+            fileUrl: z.string()
+                .url()
+                .regex(/\.(mp3|wav|ogg|flac)(\?.*)?$/i, "URL must point to a valid audio file extension (.mp3, .wav, .ogg, .flac)")
+                .describe("The direct URL of the audio file to analyze."),
+        }),
+
+        func: async ({ fileUrl }) => {
+            try {
+                console.log(`[🤖 TagPerTrackTool] Starting analysis for: ${fileUrl}`);
+
+                // 1. Initial Request (Triggers 402 Payment Required)
+                const initialResponse = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fileUrl })
+                });
+
+                if (initialResponse.status === 400) {
+                    const error = await initialResponse.json();
+                    return `Request failed: ${error.message}`;
+                }
+
+                if (initialResponse.status !== 402) {
+                    throw new Error(`Expected HTTP 402, but received ${initialResponse.status}`);
+                }
+
+                // 2. Extract x402 Payment Requirements
+                const errorData = await initialResponse.json();
+                const requirements = errorData.paymentRequirements;
+
+                if (!requirements) {
+                    throw new Error("Missing 'paymentRequirements' in the 402 response.");
+                }
+
+                console.log(`[🤖 TagPerTrackTool] 402 Received. Preparing EIP-3009 signature for payment...`);
+
+                // 3. Construct EIP-3009 Message (TransferWithAuthorization)
+                const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+                const nonce = `0x${Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('')}`;
+                const validBefore = Math.floor(Date.now() / 1000) + 3600; // expires in 1 hour
+
+                // Determine chain ID from network requirement
+                const chainId = requirements.network.includes(':')
+                    ? parseInt(requirements.network.split(':')[1], 10)
+                    : (requirements.network === 'base-sepolia' ? 84532 : 8453);
+
+                const domain = {
+                    name: requirements.extra?.name || (requirements.network.includes('sepolia') || requirements.network.includes('84532') ? 'USDC' : 'USD Coin'),
+                    version: requirements.extra?.version || '2',
+                    chainId: chainId,
+                    verifyingContract: requirements.asset,
+                };
+
+                const types = {
+                    EIP712Domain: [
+                        { name: 'name', type: 'string' },
+                        { name: 'version', type: 'string' },
+                        { name: 'chainId', type: 'uint256' },
+                        { name: 'verifyingContract', type: 'address' },
+                    ],
+                    TransferWithAuthorization: [
+                        { name: 'from', type: 'address' },
+                        { name: 'to', type: 'address' },
+                        { name: 'value', type: 'uint256' },
+                        { name: 'validAfter', type: 'uint256' },
+                        { name: 'validBefore', type: 'uint256' },
+                        { name: 'nonce', type: 'bytes32' },
+                    ],
+                };
+
+                const message = {
+                    from: agentWallet.address,
+                    to: requirements.payTo,
+                    value: requirements.maxAmountRequired,
+                    validAfter: 0,
+                    validBefore: validBefore,
+                    nonce: nonce as `0x${string}`,
+                };
+
+                // 4. Sign the Authorization Message
+                const signature = await agentWallet.signTypedData({
+                    domain,
+                    types,
+                    primaryType: 'TransferWithAuthorization',
+                    message,
+                });
+
+                // 5. Construct Payment Proof (x402 V1 structure for compatibility)
+                const paymentProof = JSON.stringify({
+                    x402Version: 1,
+                    scheme: 'exact',
+                    network: requirements.network,
+                    payload: {
+                        signature,
+                        authorization: {
+                            from: message.from,
+                            to: message.to,
+                            value: message.value.toString(),
+                            validAfter: message.validAfter.toString(),
+                            validBefore: message.validBefore.toString(),
+                            nonce: message.nonce,
+                        },
+                    },
+                });
+
+                console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request...`);
+
+                // 6. Secondary Call with X-Payment-Proof header
+                const finalResponse = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Payment-Proof': paymentProof
+                    },
+                    body: JSON.stringify({ fileUrl })
+                });
+
+                if (!finalResponse.ok) {
+                    const error = await finalResponse.json();
+                    throw new Error(error.message || `Analysis failed after payment (HTTP ${finalResponse.status}).`);
+                }
+
+                const result = await finalResponse.json();
+                console.log(`[🤖 TagPerTrackTool] Analysis completed successfully.`);
+
+                return JSON.stringify(result.data, null, 2);
+
+            } catch (error: any) {
+                console.error(`[🤖 TagPerTrackTool] Analysis Error:`, error.message);
+                return `Error analyzing track: ${error.message}. Ensure your wallet has sufficient USDC on the correct network.`;
+            }
+        }
+    });
+};
