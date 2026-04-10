@@ -1,7 +1,15 @@
 {
     "name": "tag-per-track-agentkit",
     "version": "1.0.0",
-    "description": "LangChain/AgentKit tool for the Tag-per-Track x402 Audio Analysis API",
+    "description": "LangChain/AgentKit tool for Tag-per-Track API with x402 micro-payments",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Lory97/tag-per-track-agentkit.git"
+    },
+    "homepage": "https://github.com/Lory97/tag-per-track-agentkit#readme",
+    "bugs": {
+        "url": "https://github.com/Lory97/tag-per-track-agentkit/issues"
+    },
     "main": "dist/TagPerTrackTool.js",
     "types": "dist/TagPerTrackTool.d.ts",
     "scripts": {

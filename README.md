@@ -86,6 +86,13 @@ const tools = [tagPerTrackTool, ...otherTools];
 - `npm run faucet`: Provisions the agent's wallet on Base Sepolia.
 - `npm run build`: Compiles the TypeScript code.
 
+## API Documentation & Under the Hood
+
+This SDK is a wrapper around the core Tag-per-Track API. 
+If you want to explore the underlying REST endpoints, inspect the precise JSON schemas returned by our Essentia/TensorFlow models, or test the inference manually, check out our interactive Swagger UI:
+
+👉 **[Tag-per-Track API Swagger Documentation](https://api.tag-per-track.cloud/api/docs)**
+
 ---
 
 Built for the **Agentic Commerce** era. 🚀
