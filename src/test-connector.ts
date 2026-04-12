@@ -78,8 +78,10 @@ async function runTest() {
     const wallet = await getAgentWallet();
     console.log(`🤖 Agent Wallet Address: ${wallet.address}`);
 
-    // 2. Create the LangChain tool with the wallet
-    const tagPerTrackTool = createTagPerTrackTool(wallet);
+    // 2. Create the LangChain tool with the wallet and Builder Code attribution
+    const tagPerTrackTool = createTagPerTrackTool(wallet, {
+      builderCode: process.env.BUILDER_CODE, // ERC-8021 attribution
+    });
 
     // 3. Simulate an AI agent calling the tool
     console.log("\n📡 Sending audio analysis request...");

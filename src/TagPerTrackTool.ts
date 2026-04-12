@@ -1,5 +1,9 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import { getBuilderCodeDataSuffix, DEFAULT_BUILDER_CODE } from "./builderCode";
+
+// Re-export builder code utilities for consumers
+export { getBuilderCodeDataSuffix, getBuilderCodeFromEnv, DEFAULT_BUILDER_CODE } from "./builderCode";
 
 /**
  * Abstract interface for the agent's wallet.
@@ -16,14 +20,41 @@ export interface AgentWallet {
 }
 
 /**
+ * Options for configuring the Tag-per-Track tool.
+ */
+export interface TagPerTrackToolOptions {
+    /** The endpoint of the Tag-per-Track API. */
+    apiUrl?: string;
+    /** Your Base Builder Code for on-chain attribution (e.g. "bc_xxxxxxxx"). */
+    builderCode?: string;
+}
+
+/**
  * Creates a LangChain tool for the Tag-per-Track audio analysis service.
  * This tool manages the full x402 payment challenge-response cycle.
  * 
  * @param agentWallet The wallet used to sign the x402 payment proof.
- * @param apiUrl The endpoint of the Tag-per-Track API.
+ * @param options Optional configuration (API URL, Builder Code).
  * @returns A DynamicStructuredTool ready to be used by an AI Agent.
  */
-export const createTagPerTrackTool = (agentWallet: AgentWallet, apiUrl: string = "https://api.tag-per-track.cloud/api/analyze") => {
+export const createTagPerTrackTool = (
+    agentWallet: AgentWallet,
+    options: TagPerTrackToolOptions | string = {}
+) => {
+    // Backwards compatibility: accept a string as apiUrl
+    const opts: TagPerTrackToolOptions = typeof options === 'string'
+        ? { apiUrl: options }
+        : options;
+
+    const apiUrl = opts.apiUrl || "https://api.tag-per-track.cloud/api/analyze";
+
+    // Generate ERC-8021 dataSuffix — defaults to Tag-per-Track builder code
+    const builderCode = opts.builderCode || process.env.BUILDER_CODE || DEFAULT_BUILDER_CODE;
+    const dataSuffix = getBuilderCodeDataSuffix([builderCode]);
+
+    if (dataSuffix) {
+        console.log(`[🏗️  BuilderCode] Attribution enabled: ${builderCode}`);
+    }
     return new DynamicStructuredTool({
         name: "analyze_music_track",
         description:
@@ -136,6 +167,8 @@ export const createTagPerTrackTool = (agentWallet: AgentWallet, apiUrl: string =
                             nonce: message.nonce,
                         },
                     },
+                    // ERC-8021 Builder Code attribution
+                    ...(dataSuffix ? { dataSuffix } : {}),
                 });
 
                 console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request...`);
