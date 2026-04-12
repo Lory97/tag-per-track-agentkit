@@ -30,13 +30,12 @@ What makes this unique is that the agent handles the payment itself using a **Se
 ### 1. Installation
 
 ```bash
-cd sdk
 npm install
 ```
 
 ### 2. Environment Variables
 
-Create a `sdk/.env.local` file:
+Create a `.env.local` file at the project root:
 
 ```env
 # Coinbase CDP Credentials (from your project dashboard)
@@ -58,8 +57,9 @@ npm run faucet
 ## 💻 Usage Example
 
 To use this tool, your agent needs a wallet capable of signing EIP-712 messages (e.g., using Viem or Coinbase CDP SDK).
+
 ```typescript
-import { createTagPerTrackTool } from './TagPerTrackTool';
+import { createTagPerTrackTool } from 'tag-per-track-agentkit';
 import { cdpWallet } from './your-cdp-config'; // Custom CDP setup
 
 // 1. Initialize your agent's tool
@@ -80,15 +80,30 @@ const tools = [tagPerTrackTool, ...otherTools];
 4. **Resubmission**: The tool sends a second request with the signed `X-Payment-Proof` header.
 5. **Verification & Execution**: The backend verifies the signature on-chain, settles the payment, and triggers the audio analysis.
 
+## 📁 Project Structure
+
+```
+tag-per-track-agentkit/
+├── src/
+│   ├── TagPerTrackTool.ts    # Main LangChain tool (x402 payment cycle)
+│   ├── builderCode.ts        # On-chain attribution utilities
+│   ├── test-connector.ts     # End-to-end test script
+│   └── faucet-setup.ts       # Wallet provisioning script
+├── .env.example              # Environment variable template
+├── package.json
+└── tsconfig.json
+```
+
 ## 🛠 Scripts
 
-- `npm run test:connector`: Runs a full end-to-end test of the tool.
-- `npm run faucet`: Provisions the agent's wallet on Base Sepolia.
-- `npm run build`: Compiles the TypeScript code.
+- `npm run test:connector` — Runs a full end-to-end test of the tool.
+- `npm run faucet` — Provisions the agent's wallet on Base Sepolia.
+- `npm run build` — Compiles the TypeScript code.
+- `npm run clean` — Removes the `dist/` output directory.
 
 ## API Documentation & Under the Hood
 
-This SDK is a wrapper around the core Tag-per-Track API. 
+This SDK is a wrapper around the core Tag-per-Track API.
 If you want to explore the underlying REST endpoints, inspect the precise JSON schemas returned by our Essentia/TensorFlow models, or test the inference manually, check out our interactive Swagger UI:
 
 👉 **[Tag-per-Track API Swagger Documentation](https://api.tag-per-track.cloud/api/docs)**
