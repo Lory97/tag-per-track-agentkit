@@ -65,9 +65,8 @@ export const createTagPerTrackTool = (
 
         schema: z.object({
             fileUrl: z.string()
-                .url()
-                .regex(/\.(mp3|wav|ogg|flac)(\?.*)?$/i, "URL must point to a valid audio file extension (.mp3, .wav, .ogg, .flac)")
-                .describe("The direct URL of the audio file to analyze."),
+                .url("Must be a valid HTTP/HTTPS URL")
+                .describe("The direct URL of the audio file to analyze (supports mp3, wav, ogg, flac)."),
         }),
 
         func: async ({ fileUrl }) => {
