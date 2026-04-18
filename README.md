@@ -90,8 +90,7 @@ tag-per-track-agentkit/
 │   ├── TagPerTrackTool.ts    # Main LangChain tool (x402 payment cycle)
 │   ├── builderCode.ts        # On-chain attribution utilities
 │   ├── test-connector.ts     # End-to-end test script
-│   ├── setup-wallet.ts       # Mainnet wallet provisioning script
-│   └── faucet-sepolia-setup.ts # Sepolia wallet provisioning & faucet script
+│   └── setup-wallet.ts       # Mainnet wallet provisioning script
 ├── .env.example              # Environment variable template
 ├── package.json
 └── tsconfig.json
