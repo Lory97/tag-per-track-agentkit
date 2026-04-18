@@ -17,7 +17,7 @@
         "clean": "rm -rf dist",
         "prepare": "npm run build",
         "test:connector": "npx ts-node src/test-connector.ts",
-        "faucet": "npx ts-node src/faucet-setup.ts"
+        "setup-wallet": "npx ts-node src/setup-wallet.ts"
     },
     "keywords": [
         "langchain",

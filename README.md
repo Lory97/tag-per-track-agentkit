@@ -4,7 +4,7 @@ An **Agentic-First** LangChain/AgentKit tool designed to enable AI Agents to per
 
 ## 🌟 Overview
 
-This tool allows AI agents to submit audio files (via URL) to the Tag-per-Track API. In exchange for a small fee (e.g., 0.05 USDC on Base Sepolia), the agent receives a rich JSON payload containing:
+This tool allows AI agents to submit audio files (via URL) to the Tag-per-Track API. In exchange for a small fee (e.g., 0.05 USDC on Base Mainnet), the agent receives a rich JSON payload containing:
 - **BPM** & **Rhythm**
 - **Key** & **Scale**
 - **Genres** (with confidence scores)
@@ -21,8 +21,8 @@ What makes this unique is that the agent handles the payment itself using a **Se
 
 ## 🛠 Prerequisites
 
-- **Base Sepolia**: The current implementation runs on the Base Sepolia testnet.
-- **USDC (Base Sepolia)**: Ensure your agent's wallet has USDC.
+- **Base Mainnet**: The current implementation runs on the Base Mainnet.
+- **USDC (Base Mainnet)**: Ensure your agent's wallet has USDC.
 - **Coinbase CDP API Keys**: You need `CDP_API_KEY_NAME` and `CDP_API_KEY_PRIVATE_KEY`.
 
 ## 📦 Setup
@@ -46,13 +46,15 @@ CDP_API_KEY_PRIVATE_KEY="-----BEGIN ANY KEY-----..."
 CDP_WALLET_SECRET="your-cdp-shared-secret"
 ```
 
-### 3. Faucet (Provisioning)
+### 3. Wallet Setup (Provisioning)
 
-If it's your agent's first time, run the faucet script to create the wallet and request test funds (ETH and USDC):
+If it's your agent's first time, run the setup script to create the wallet. Once created, you will need to manually send some ETH (for gas) and USDC (for payments) to the generated address on Base Mainnet:
 
 ```bash
-npm run faucet
+npm run setup-wallet
 ```
+
+*(Note: If you are building/testing on Base Sepolia, you can append `-- testnet` to this command. The script will automatically call the testnet faucet to fund your agent's wallet with free test ETH and USDC).*
 
 ## 💻 Usage Example
 
@@ -88,7 +90,8 @@ tag-per-track-agentkit/
 │   ├── TagPerTrackTool.ts    # Main LangChain tool (x402 payment cycle)
 │   ├── builderCode.ts        # On-chain attribution utilities
 │   ├── test-connector.ts     # End-to-end test script
-│   └── faucet-setup.ts       # Wallet provisioning script
+│   ├── setup-wallet.ts       # Mainnet wallet provisioning script
+│   └── faucet-sepolia-setup.ts # Sepolia wallet provisioning & faucet script
 ├── .env.example              # Environment variable template
 ├── package.json
 └── tsconfig.json
@@ -97,7 +100,7 @@ tag-per-track-agentkit/
 ## 🛠 Scripts
 
 - `npm run test:connector` — Runs a full end-to-end test of the tool.
-- `npm run faucet` — Provisions the agent's wallet on Base Sepolia.
+- `npm run setup-wallet` — Provisions the agent's wallet on Base Mainnet (use `-- testnet` for Sepolia).
 - `npm run build` — Compiles the TypeScript code.
 - `npm run clean` — Removes the `dist/` output directory.
 

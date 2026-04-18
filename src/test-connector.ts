@@ -70,7 +70,7 @@ async function getAgentWallet(): Promise<AgentWallet> {
  */
 async function runTest() {
   console.log("--------------------------------------------------");
-  console.log("🚀 Initializing Tag-per-Track SDK Test (Base Sepolia)");
+  console.log("🚀 Initializing Tag-per-Track SDK Test (Base Mainnet)");
   console.log("--------------------------------------------------");
 
   try {
