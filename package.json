@@ -1,6 +1,6 @@
 {
     "name": "tag-per-track-agentkit",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "description": "LangChain/AgentKit tool for Tag-per-Track API with x402 micro-payments",
     "repository": {
         "type": "git",
