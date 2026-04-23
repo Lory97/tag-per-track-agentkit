@@ -97,6 +97,13 @@ export const createTagPerTrackTool = (
                     throw new Error("Missing 'paymentRequirements' in the 402 response.");
                 }
 
+                // Handle x402 v2 structure where payment terms are in 'accepts' array
+                const accept = requirements.accepts ? requirements.accepts[0] : requirements;
+
+                if (!accept) {
+                    throw new Error("Missing 'accepts' payment conditions in the 402 response.");
+                }
+
                 console.log(`[🤖 TagPerTrackTool] 402 Received. Preparing EIP-3009 signature for payment...`);
 
                 // 3. Construct EIP-3009 Message (TransferWithAuthorization)
@@ -105,15 +112,15 @@ export const createTagPerTrackTool = (
                 const validBefore = Math.floor(Date.now() / 1000) + 3600; // expires in 1 hour
 
                 // Determine chain ID from network requirement
-                const chainId = requirements.network.includes(':')
-                    ? parseInt(requirements.network.split(':')[1], 10)
-                    : (requirements.network === 'base-sepolia' ? 84532 : 8453);
+                const chainId = accept.network.includes(':')
+                    ? parseInt(accept.network.split(':')[1], 10)
+                    : (accept.network === 'base-sepolia' ? 84532 : 8453);
 
                 const domain = {
-                    name: requirements.extra?.name || (requirements.network.includes('sepolia') || requirements.network.includes('84532') ? 'USDC' : 'USD Coin'),
-                    version: requirements.extra?.version || '2',
+                    name: accept.extra?.name || (accept.network.includes('sepolia') || accept.network.includes('84532') ? 'USDC' : 'USD Coin'),
+                    version: accept.extra?.version || '2',
                     chainId: chainId,
-                    verifyingContract: requirements.asset,
+                    verifyingContract: accept.asset,
                 };
 
                 const types = {
@@ -135,10 +142,10 @@ export const createTagPerTrackTool = (
 
                 const message = {
                     from: agentWallet.address,
-                    to: requirements.payTo,
-                    value: requirements.maxAmountRequired,
-                    validAfter: 0,
-                    validBefore: validBefore,
+                    to: accept.payTo,
+                    value: BigInt(accept.amount || accept.maxAmountRequired),
+                    validAfter: BigInt(0),
+                    validBefore: BigInt(validBefore),
                     nonce: nonce as `0x${string}`,
                 };
 
@@ -150,11 +157,10 @@ export const createTagPerTrackTool = (
                     message,
                 });
 
-                // 5. Construct Payment Proof (x402 V1 structure for compatibility)
+                // 5. Construct Payment Proof (x402 V2 structure aligned with standard)
                 const paymentProof = JSON.stringify({
-                    x402Version: 1,
-                    scheme: 'exact',
-                    network: requirements.network,
+                    x402Version: 2,
+                    accepted: accept,
                     payload: {
                         signature,
                         authorization: {
@@ -166,8 +172,12 @@ export const createTagPerTrackTool = (
                             nonce: message.nonce,
                         },
                     },
-                    // ERC-8021 Builder Code attribution
-                    ...(dataSuffix ? { dataSuffix } : {}),
+                    resource: requirements.resource || {
+                        url: apiUrl,
+                        description: 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres and Instruments from audio URLs.',
+                        mimeType: 'application/json',
+                    },
+                    extensions: requirements.extensions
                 });
 
                 console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request...`);
@@ -184,6 +194,7 @@ export const createTagPerTrackTool = (
 
                 if (!finalResponse.ok) {
                     const error = await finalResponse.json();
+                    console.error("Detailed backend error:", JSON.stringify(error, null, 2));
                     throw new Error(error.message || `Analysis failed after payment (HTTP ${finalResponse.status}).`);
                 }
 

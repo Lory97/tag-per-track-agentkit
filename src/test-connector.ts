@@ -50,12 +50,18 @@ async function getAgentWallet(): Promise<AgentWallet> {
     return {
       address: account.address as `0x${string}`,
       signTypedData: async (data: any) => {
+        console.log("Signing data:", data.message);
+        // Serialize BigInt to string to avoid dropping them
+        const safeMessage = JSON.parse(JSON.stringify(data.message, (key, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+        ));
+        console.log("Safe message:", safeMessage);
         const result = await cdp.evm.signTypedData({
           address: account.address,
           domain: data.domain,
           types: data.types,
           primaryType: data.primaryType,
-          message: data.message,
+          message: safeMessage,
         });
         return result.signature as `0x${string}`;
       },
