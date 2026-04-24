@@ -90,8 +90,20 @@ export const createTagPerTrackTool = (
                 }
 
                 // 2. Extract x402 Payment Requirements
-                const errorData = await initialResponse.json();
-                const requirements = errorData.paymentRequirements;
+                const paymentRequiredHeader = initialResponse.headers.get("PAYMENT-REQUIRED");
+                let requirements;
+                
+                if (paymentRequiredHeader) {
+                    // Node.js / Browser compatible base64 decoding
+                    const decoded = typeof atob !== 'undefined' 
+                        ? atob(paymentRequiredHeader) 
+                        : Buffer.from(paymentRequiredHeader, 'base64').toString('utf-8');
+                    requirements = JSON.parse(decoded);
+                } else {
+                    // Fallback to body for backwards compatibility
+                    const errorData = await initialResponse.json();
+                    requirements = errorData.paymentRequirements;
+                }
 
                 if (!requirements) {
                     throw new Error("Missing 'paymentRequirements' in the 402 response.");
@@ -182,12 +194,13 @@ export const createTagPerTrackTool = (
 
                 console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request...`);
 
-                // 6. Secondary Call with X-Payment-Proof header
+                // 6. Secondary Call with PAYMENT-SIGNATURE header
                 const finalResponse = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Payment-Proof': paymentProof
+                        'PAYMENT-SIGNATURE': paymentProof,
+                        'X-Payment-Proof': paymentProof // Kept for backwards compatibility
                     },
                     body: JSON.stringify({ fileUrl })
                 });
