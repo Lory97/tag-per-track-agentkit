@@ -58,23 +58,31 @@ export const createTagPerTrackTool = (
     return new DynamicStructuredTool({
         name: "analyze_music_track",
         description:
-            "Analyzes a music track or audio file to extract advanced metadata like BPM, genre, mood, and key. " +
-            "Provide the URL of the audio file (.mp3, .wav, .ogg). " +
-            "Note: This tool automatically executes a micro-payment (0.05 USDC) via the x402 protocol " +
+            "Analyzes a music track or audio file to extract advanced musical metadata (BPM, genre, mood, key, instruments) and optionally transcribe vocal lyrics. " +
+            "Provide the URL of the audio file (.mp3, .wav, .ogg, .flac). " +
+            "Note: This tool automatically executes a micro-payment (0.05 USDC for standard analysis, or 0.10 USDC with lyrics extraction) via the x402 protocol on Base " +
             "using the agent's wallet signature.",
 
         schema: z.object({
             fileUrl: z.string()
                 .url("Must be a valid HTTP/HTTPS URL")
                 .describe("The direct URL of the audio file to analyze (supports mp3, wav, ogg, flac)."),
+            extractLyrics: z.boolean()
+                .optional()
+                .describe("Optional: Set to true to transcribe and extract song lyrics in addition to metadata. Costs 0.10 USDC instead of 0.05 USDC."),
         }),
 
-        func: async ({ fileUrl }) => {
+        func: async ({ fileUrl, extractLyrics }) => {
             try {
-                console.log(`[🤖 TagPerTrackTool] Starting analysis for: ${fileUrl}`);
+                const targetUrl = extractLyrics
+                    ? (apiUrl.endsWith('/analyze') ? `${apiUrl}-with-lyrics` : `${apiUrl.replace(/\/analyze$/, '')}/analyze-with-lyrics`)
+                    : apiUrl;
+
+                console.log(`[🤖 TagPerTrackTool] Starting analysis for: ${fileUrl} (extractLyrics: ${Boolean(extractLyrics)})`);
+                console.log(`[🤖 TagPerTrackTool] Target endpoint: ${targetUrl}`);
 
                 // 1. Initial Request (Triggers 402 Payment Required)
-                const initialResponse = await fetch(apiUrl, {
+                const initialResponse = await fetch(targetUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ fileUrl })
@@ -116,7 +124,7 @@ export const createTagPerTrackTool = (
                     throw new Error("Missing 'accepts' payment conditions in the 402 response.");
                 }
 
-                console.log(`[🤖 TagPerTrackTool] 402 Received. Preparing EIP-3009 signature for payment...`);
+                console.log(`[🤖 TagPerTrackTool] 402 Received (${accept.amount} units / ${accept.network}). Preparing EIP-3009 signature for payment...`);
 
                 // 3. Construct EIP-3009 Message (TransferWithAuthorization)
                 const randomBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -185,17 +193,19 @@ export const createTagPerTrackTool = (
                         },
                     },
                     resource: requirements.resource || {
-                        url: apiUrl,
-                        description: 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres and Instruments from audio URLs.',
+                        url: targetUrl,
+                        description: extractLyrics
+                            ? 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres, Instruments AND Lyrics from audio URLs.'
+                            : 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres and Instruments from audio URLs.',
                         mimeType: 'application/json',
                     },
                     extensions: requirements.extensions
                 });
 
-                console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request...`);
+                console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request to ${targetUrl}...`);
 
                 // 6. Secondary Call with PAYMENT-SIGNATURE header
-                const finalResponse = await fetch(apiUrl, {
+                const finalResponse = await fetch(targetUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -220,6 +230,39 @@ export const createTagPerTrackTool = (
                 console.error(`[🤖 TagPerTrackTool] Analysis Error:`, error.message);
                 return `Error analyzing track: ${error.message}. Ensure your wallet has sufficient USDC on the correct network.`;
             }
+        }
+    });
+};
+
+/**
+ * Creates a LangChain tool specifically configured for extracting both metadata AND lyrics.
+ * 
+ * @param agentWallet The wallet used to sign the x402 payment proof.
+ * @param options Optional configuration (API URL, Builder Code).
+ * @returns A DynamicStructuredTool configured for lyrics extraction (0.10 USDC).
+ */
+export const createTagPerTrackWithLyricsTool = (
+    agentWallet: AgentWallet,
+    options: TagPerTrackToolOptions | string = {}
+) => {
+    const baseTool = createTagPerTrackTool(agentWallet, options);
+
+    return new DynamicStructuredTool({
+        name: "analyze_music_track_with_lyrics",
+        description:
+            "Analyzes an audio track or music file to extract complete musical metadata (BPM, genre, mood, key, instruments) AND transcribe full vocal lyrics using AI. " +
+            "Provide the URL of the audio file (.mp3, .wav, .ogg, .flac). " +
+            "Note: This tool automatically executes a micro-payment of 0.10 USDC via the x402 protocol on Base " +
+            "using the agent's wallet signature.",
+
+        schema: z.object({
+            fileUrl: z.string()
+                .url("Must be a valid HTTP/HTTPS URL")
+                .describe("The direct URL of the audio file to analyze (supports mp3, wav, ogg, flac)."),
+        }),
+
+        func: async ({ fileUrl }) => {
+            return await baseTool.invoke({ fileUrl, extractLyrics: true });
         }
     });
 };

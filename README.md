@@ -4,17 +4,19 @@ An **Agentic-First** LangChain/AgentKit tool designed to enable AI Agents to per
 
 ## 🌟 Overview
 
-This tool allows AI agents to submit audio files (via URL) to the Tag-per-Track API. In exchange for a small fee (e.g., 0.05 USDC on Base Mainnet), the agent receives a rich JSON payload containing:
+This tool allows AI agents to submit audio files (via URL) to the Tag-per-Track API. In exchange for a micro-payment (e.g., 0.05 USDC for standard metadata, or 0.10 USDC with lyrics extraction on Base Mainnet), the agent receives a rich JSON payload containing:
 - **BPM** & **Rhythm**
 - **Key** & **Scale**
 - **Genres** (with confidence scores)
 - **Moods** & **Instruments**
+- **Lyrics** (AI speech-to-text vocal transcription when `extractLyrics` is enabled)
 
-What makes this unique is that the agent handles the payment itself using a **Server-Managed Coinbase CDP Wallet**, signing an **EIP-3009 TransferWithAuthorization** without any human intervention.
+What makes this unique is that the agent handles the payment itself using a **Server-Managed Coinbase CDP Wallet** or local private key, signing an **EIP-3009 TransferWithAuthorization** without any human intervention.
 
 ## 🚀 Key Features
 
 - **Standardized Payment**: Implements the x402 standard for frictionless monetized APIs.
+- **Lyrics & Audio Metadata**: Extracts musical tags and transcribes full vocal lyrics.
 - **Coinbase CDP Integrated**: Native support for Coinbase SDK Managed Wallets.
 - **Agentic Signing**: Uses EIP-712 typed data signing for secure, gasless-for-user transactions.
 - **LangChain Compatible**: Ready to be plugged into any `AgentExecutor` or LangChain agent.
@@ -61,17 +63,18 @@ npm run setup-wallet
 To use this tool, your agent needs a wallet capable of signing EIP-712 messages (e.g., using Viem or Coinbase CDP SDK).
 
 ```typescript
-import { createTagPerTrackTool } from 'tag-per-track-agentkit';
-import { cdpWallet } from './your-cdp-config'; // Custom CDP setup
+import { createTagPerTrackTool, createTagPerTrackWithLyricsTool } from 'tag-per-track-agentkit';
+import { cdpWallet } from './your-cdp-config'; // Custom CDP or Viem setup
 
 // 1. Initialize your agent's tool
 const tagPerTrackTool = createTagPerTrackTool(cdpWallet);
+const lyricsTool = createTagPerTrackWithLyricsTool(cdpWallet);
 
 // 2. Add to LangChain Agent tools array
-const tools = [tagPerTrackTool, ...otherTools];
+const tools = [tagPerTrackTool, lyricsTool, ...otherTools];
 
-// 3. The Agent can now analyze music!
-// Prompt: "Analyze the genre and BPM of this track: https://example.com/song.mp3"
+// 3. The Agent can now analyze music and extract lyrics!
+// Prompt: "Analyze the genre, BPM, and extract the lyrics of this track: https://example.com/song.mp3"
 ```
 
 ## ⚡ How it Works (The x402 Cycle)
