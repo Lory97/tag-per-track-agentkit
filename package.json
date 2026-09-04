@@ -1,6 +1,6 @@
 {
     "name": "tag-per-track-agentkit",
-    "version": "1.0.7",
+    "version": "1.1.0",
     "description": "LangChain/AgentKit tool for Tag-per-Track API with x402 micro-payments",
     "repository": {
         "type": "git",
@@ -16,6 +16,7 @@
         "build": "tsc",
         "clean": "rm -rf dist",
         "prepare": "npm run build",
+        "test": "npx ts-node src/TagPerTrackTool.spec.ts",
         "test:connector": "npx ts-node src/test-connector.ts",
         "setup-wallet": "npx ts-node src/setup-wallet.ts"
     },

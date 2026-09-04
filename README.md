@@ -4,7 +4,7 @@ An **Agentic-First** LangChain/AgentKit tool designed to enable AI Agents to per
 
 ## 🌟 Overview
 
-This tool allows AI agents to submit audio files (via URL) to the Tag-per-Track API. In exchange for a micro-payment (e.g., 0.05 USDC for standard metadata, or 0.10 USDC with lyrics extraction on Base Mainnet), the agent receives a rich JSON payload containing:
+This tool allows AI agents to analyze audio tracks either from **local files on disk** (`filePath`) or from **remote URLs** (`fileUrl`). In exchange for a micro-payment (e.g., 0.05 USDC for standard metadata, or 0.10 USDC with lyrics extraction on Base), the agent receives a rich JSON payload containing:
 - **BPM** & **Rhythm**
 - **Key** & **Scale**
 - **Genres** (with confidence scores)
@@ -16,6 +16,9 @@ What makes this unique is that the agent handles the payment itself using a **Se
 ## 🚀 Key Features
 
 - **Standardized Payment**: Implements the x402 standard for frictionless monetized APIs.
+- **Local Binary Files & Remote URLs**: Supports local audio files (`filePath`) uploaded via `multipart/form-data` as well as remote URLs (`fileUrl`).
+- **Pre-Payment Safety Validation**: Validates file existence, regular file status, and size limit (50 MB) **before** requesting or signing x402 payments to protect agent funds.
+- **Intelligent Path Detection**: Automatically converts local filesystem paths or `file://` URLs provided in `fileUrl` to binary uploads.
 - **Lyrics & Audio Metadata**: Extracts musical tags and transcribes full vocal lyrics.
 - **Coinbase CDP Integrated**: Native support for Coinbase SDK Managed Wallets.
 - **Agentic Signing**: Uses EIP-712 typed data signing for secure, gasless-for-user transactions.
@@ -23,9 +26,9 @@ What makes this unique is that the agent handles the payment itself using a **Se
 
 ## 🛠 Prerequisites
 
-- **Base Mainnet**: The current implementation runs on the Base Mainnet.
-- **USDC (Base Mainnet)**: Ensure your agent's wallet has USDC.
-- **Coinbase CDP API Keys**: You need `CDP_API_KEY_NAME` and `CDP_API_KEY_PRIVATE_KEY`.
+- **Base Mainnet / Base Sepolia**: The tool runs on Base (Mainnet or Sepolia).
+- **USDC**: Ensure your agent's wallet has USDC on the selected network.
+- **Coinbase CDP API Keys**: You need `CDP_API_KEY_NAME` and `CDP_API_KEY_PRIVATE_KEY` (or a local private key).
 
 ## 📦 Setup
 
@@ -73,37 +76,57 @@ const lyricsTool = createTagPerTrackWithLyricsTool(cdpWallet);
 // 2. Add to LangChain Agent tools array
 const tools = [tagPerTrackTool, lyricsTool, ...otherTools];
 
-// 3. The Agent can now analyze music and extract lyrics!
-// Prompt: "Analyze the genre, BPM, and extract the lyrics of this track: https://example.com/song.mp3"
+// 3. The Agent can now analyze music from local files or URLs!
+// Example A: Local audio file (e.g. downloaded recording or attachment)
+const localResult = await tagPerTrackTool.invoke({
+  filePath: "./music/my_recording.mp3"
+});
+
+// Example B: Remote URL with full vocal lyrics extraction (0.10 USDC)
+const urlResult = await lyricsTool.invoke({
+  fileUrl: "https://example.com/song.mp3"
+});
 ```
+
+### Tool Parameters
+
+- `filePath` (*string, optional*): Path to a local audio file on disk (`.mp3`, `.wav`, `.ogg`, `.flac`). Use this whenever analyzing a local file, recording, or email attachment saved locally. The file will be read in binary and streamed via `multipart/form-data`.
+- `fileUrl` (*string, optional*): The direct publicly accessible URL (HTTP/HTTPS or IPFS) of the audio file to analyze.
+- `extractLyrics` (*boolean, optional*): Set to `true` to transcribe and extract vocal lyrics in addition to metadata. Costs 0.10 USDC instead of 0.05 USDC.
 
 ## ⚡ How it Works (The x402 Cycle)
 
-1. **Initial Call**: The Agent calls the API without a proof. The API returns `HTTP 402 Payment Required` along with payment instructions.
-2. **Challenge Extraction**: The `TagPerTrackTool` parses the `paymentRequirements` (amount, asset, payTo).
-3. **EIP-3009 Signing**: The agent signs a `TransferWithAuthorization` EIP-712 message using its CDP-managed wallet.
-4. **Resubmission**: The tool sends a second request with the signed `X-Payment-Proof` header.
-5. **Verification & Execution**: The backend verifies the signature on-chain, settles the payment, and triggers the audio analysis.
+1. **Pre-Validation**: The tool validates the file locally (size < 50MB, file exists) before initiating any network request.
+2. **Initial Call**: The agent sends a lightweight request to obtain payment instructions. The API returns `HTTP 402 Payment Required`.
+3. **Challenge Extraction**: The `TagPerTrackTool` parses the `PAYMENT-REQUIRED` header or body (`amount`, `asset`, `payTo`).
+4. **EIP-3009 Signing**: The agent signs a `TransferWithAuthorization` EIP-712 message using its wallet.
+5. **Resubmission**: The tool sends the final request with the `PAYMENT-SIGNATURE` header. For local files, the binary data is transmitted via `FormData` (`multipart/form-data`).
+6. **Verification & Execution**: The backend verifies the signature on-chain, settles the payment, and triggers the audio analysis.
 
 ## 📁 Project Structure
 
 ```
 tag-per-track-agentkit/
 ├── src/
-│   ├── TagPerTrackTool.ts    # Main LangChain tool (x402 payment cycle)
-│   ├── builderCode.ts        # On-chain attribution utilities
-│   ├── test-connector.ts     # End-to-end test script
-│   └── setup-wallet.ts       # Mainnet wallet provisioning script
-├── .env.example              # Environment variable template
+│   ├── TagPerTrackTool.ts        # Main LangChain tool (x402 payment cycle & binary upload)
+│   ├── TagPerTrackTool.spec.ts   # Unit test suite
+│   ├── builderCode.ts            # On-chain attribution utilities (ERC-8021)
+│   ├── test-connector.ts         # End-to-end test script
+│   └── setup-wallet.ts           # Wallet provisioning script
+├── .env.example                  # Environment variable template
 ├── package.json
 └── tsconfig.json
 ```
 
 ## 🛠 Scripts
 
-- `npm run test:connector` — Runs a full end-to-end test of the tool.
+- `npm test` — Runs the unit test suite verifying path resolution, MIME detection, and tool schemas.
+- `npm run test:connector` — Runs an end-to-end test with a default public audio URL.
+  - Test a local audio file: `npm run test:connector -- ./my-track.mp3`
+  - Test with lyrics extraction: `npm run test:connector -- ./my-track.mp3 --lyrics`
+  - Test a custom remote URL: `npm run test:connector -- https://example.com/song.mp3`
 - `npm run setup-wallet` — Provisions the agent's wallet on Base Mainnet (use `-- testnet` for Sepolia).
-- `npm run build` — Compiles the TypeScript code.
+- `npm run build` — Compiles the TypeScript code to `dist/`.
 - `npm run clean` — Removes the `dist/` output directory.
 
 ## API Documentation & Under the Hood

@@ -1,9 +1,80 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { fileURLToPath } from 'url';
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { getBuilderCodeDataSuffix, DEFAULT_BUILDER_CODE } from "./builderCode";
 
 // Re-export builder code utilities for consumers
 export { getBuilderCodeDataSuffix, getBuilderCodeFromEnv, DEFAULT_BUILDER_CODE } from "./builderCode";
+
+export interface AudioInput {
+    fileUrl?: string;
+    filePath?: string;
+    extractLyrics?: boolean;
+}
+
+export const MAX_LOCAL_FILE_SIZE = 50 * 1024 * 1024; // 50 MB limit
+
+/**
+ * Resolves a local path, expanding '~', file:// URLs, and relative paths.
+ */
+export function resolveLocalPath(filePath: string): string {
+    if (filePath.startsWith('file://')) {
+        try {
+            return fileURLToPath(filePath);
+        } catch {
+            return filePath.replace(/^file:\/\//, '');
+        }
+    }
+    if (filePath.startsWith('~')) {
+        return path.resolve(os.homedir(), filePath.slice(1).replace(/^[/\\]/, ''));
+    }
+    return path.resolve(process.cwd(), filePath);
+}
+
+/**
+ * Detects if a string is intended as a local file path rather than a remote URL.
+ */
+export function isLikelyLocalPath(str: string): boolean {
+    if (!str || typeof str !== 'string') return false;
+    const trimmed = str.trim();
+    return (
+        trimmed.startsWith('file://') ||
+        trimmed.startsWith('~') ||
+        trimmed.startsWith('/') ||
+        trimmed.startsWith('./') ||
+        trimmed.startsWith('../') ||
+        /^[a-zA-Z]:[\\/]/.test(trimmed)
+    );
+}
+
+/**
+ * Maps common audio file extensions to their standard MIME type.
+ */
+export function getAudioMimeType(filename: string): string {
+    const ext = path.extname(filename).toLowerCase();
+    switch (ext) {
+        case '.mp3':
+            return 'audio/mpeg';
+        case '.wav':
+            return 'audio/wav';
+        case '.ogg':
+            return 'audio/ogg';
+        case '.flac':
+            return 'audio/flac';
+        case '.m4a':
+            return 'audio/mp4';
+        case '.aac':
+            return 'audio/aac';
+        case '.aiff':
+        case '.aif':
+            return 'audio/aiff';
+        default:
+            return 'application/octet-stream';
+    }
+}
 
 /**
  * Abstract interface for the agent's wallet.
@@ -32,6 +103,7 @@ export interface TagPerTrackToolOptions {
 /**
  * Creates a LangChain tool for the Tag-per-Track audio analysis service.
  * This tool manages the full x402 payment challenge-response cycle.
+ * Supports both local binary audio files via 'filePath' and remote URLs via 'fileUrl'.
  * 
  * @param agentWallet The wallet used to sign the x402 payment proof.
  * @param options Optional configuration (API URL, Builder Code).
@@ -55,37 +127,94 @@ export const createTagPerTrackTool = (
     if (dataSuffix) {
         console.log(`[🏗️  BuilderCode] Attribution enabled: ${builderCode}`);
     }
+
     return new DynamicStructuredTool({
         name: "analyze_music_track",
         description:
-            "Analyzes a music track or audio file to extract advanced musical metadata (BPM, genre, mood, key, instruments) and optionally transcribe vocal lyrics. " +
-            "Provide the URL of the audio file (.mp3, .wav, .ogg, .flac). " +
-            "Note: This tool automatically executes a micro-payment (0.05 USDC for standard analysis, or 0.10 USDC with lyrics extraction) via the x402 protocol on Base " +
+            "Analyzes a music track or audio file to extract musical metadata (BPM, genre, mood, key, instruments) and optionally vocal lyrics. " +
+            "Supports local audio files via 'filePath' (read in binary and uploaded) or remote URLs via 'fileUrl'. " +
+            "Note: This tool automatically executes a micro-payment (0.05 USDC for standard analysis, or 0.10 USDC when extractLyrics is enabled) via the x402 protocol on Base " +
             "using the agent's wallet signature.",
 
         schema: z.object({
+            filePath: z.string()
+                .optional()
+                .describe("Path to a local audio file on disk (.mp3, .wav, .ogg, .flac). Use this whenever analyzing a local file, recording, or email attachment saved locally."),
             fileUrl: z.string()
-                .url("Must be a valid HTTP/HTTPS URL")
-                .describe("The direct URL of the audio file to analyze (supports mp3, wav, ogg, flac)."),
+                .optional()
+                .describe("The direct publicly accessible URL (HTTP/HTTPS or IPFS) of the audio file to analyze."),
             extractLyrics: z.boolean()
                 .optional()
                 .describe("Optional: Set to true to transcribe and extract song lyrics in addition to metadata. Costs 0.10 USDC instead of 0.05 USDC."),
         }),
 
-        func: async ({ fileUrl, extractLyrics }) => {
+        func: async ({ filePath: inputFilePath, fileUrl: inputFileUrl, extractLyrics }) => {
             try {
+                let filePath = inputFilePath ? inputFilePath.trim() : undefined;
+                let fileUrl = inputFileUrl ? inputFileUrl.trim() : undefined;
+
+                // If both are provided, prioritize the local file
+                if (filePath && fileUrl) {
+                    console.log(`[🤖 TagPerTrackTool] Both 'filePath' and 'fileUrl' provided. Prioritizing local file: "${filePath}".`);
+                    fileUrl = undefined;
+                }
+
+                // Auto-detect if fileUrl is actually a local file or file:// URL
+                if (!filePath && fileUrl) {
+                    if (isLikelyLocalPath(fileUrl)) {
+                        const potentialLocalPath = resolveLocalPath(fileUrl);
+                        if (fs.existsSync(potentialLocalPath)) {
+                            console.log(`[🤖 TagPerTrackTool] Detected local file in 'fileUrl' ("${fileUrl}"). Auto-converting to local upload.`);
+                            filePath = potentialLocalPath;
+                            fileUrl = undefined;
+                        } else {
+                            return `Invalid fileUrl "${fileUrl}": local or relative filesystem paths cannot be fetched by the remote server. ` +
+                                `The file was also not found locally at "${potentialLocalPath}". Please provide an existing local file via 'filePath' or a valid public HTTP/IPFS URL via 'fileUrl'.`;
+                        }
+                    }
+                }
+
+                if (!filePath && !fileUrl) {
+                    return "Missing audio source: Please provide either 'filePath' (for a local audio file on disk) or 'fileUrl' (for a public HTTP/HTTPS or IPFS URL).";
+                }
+
+                let localFileData: { buffer: Buffer; filename: string; mimeType: string } | undefined;
+
+                if (filePath) {
+                    const resolvedPath = resolveLocalPath(filePath);
+                    if (!fs.existsSync(resolvedPath)) {
+                        return `Local file not found: "${filePath}" (resolved path: "${resolvedPath}"). Please verify the path.`;
+                    }
+                    const stat = await fs.promises.stat(resolvedPath);
+                    if (!stat.isFile()) {
+                        return `The provided path is not a regular file: "${filePath}"`;
+                    }
+                    if (stat.size > MAX_LOCAL_FILE_SIZE) {
+                        return `File is too large (${(stat.size / 1024 / 1024).toFixed(2)} MB). Maximum allowed size is 50MB.`;
+                    }
+                    const buffer = await fs.promises.readFile(resolvedPath);
+                    const filename = path.basename(resolvedPath);
+                    const mimeType = getAudioMimeType(filename);
+                    localFileData = { buffer, filename, mimeType };
+                }
+
                 const targetUrl = extractLyrics
                     ? (apiUrl.endsWith('/analyze') ? `${apiUrl}-with-lyrics` : `${apiUrl.replace(/\/analyze$/, '')}/analyze-with-lyrics`)
                     : apiUrl;
 
-                console.log(`[🤖 TagPerTrackTool] Starting analysis for: ${fileUrl} (extractLyrics: ${Boolean(extractLyrics)})`);
+                const sourceDescription = localFileData
+                    ? `local file: ${localFileData.filename} (${(localFileData.buffer.length / 1024 / 1024).toFixed(2)} MB)`
+                    : `remote URL: ${fileUrl}`;
+
+                console.log(`[🤖 TagPerTrackTool] Starting analysis for ${sourceDescription} (extractLyrics: ${Boolean(extractLyrics)})`);
                 console.log(`[🤖 TagPerTrackTool] Target endpoint: ${targetUrl}`);
 
                 // 1. Initial Request (Triggers 402 Payment Required)
+                const triggerBody = fileUrl ? { fileUrl } : { fileName: localFileData?.filename };
                 const initialResponse = await fetch(targetUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fileUrl })
+                    body: JSON.stringify(triggerBody)
                 });
 
                 if (initialResponse.status === 400) {
@@ -195,8 +324,8 @@ export const createTagPerTrackTool = (
                     resource: requirements.resource || {
                         url: targetUrl,
                         description: extractLyrics
-                            ? 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres, Instruments AND Lyrics from audio URLs.'
-                            : 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres and Instruments from audio URLs.',
+                            ? 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres, Instruments AND Lyrics from audio.'
+                            : 'Tag-per-Track: Agentic-First Musical Audio Analysis API. Extracts BPM, Key, Mood, Genres and Instruments from audio.',
                         mimeType: 'application/json',
                     },
                     extensions: requirements.extensions
@@ -205,14 +334,26 @@ export const createTagPerTrackTool = (
                 console.log(`[🤖 TagPerTrackTool] Proof generated and signed. Re-submitting request to ${targetUrl}...`);
 
                 // 6. Secondary Call with PAYMENT-SIGNATURE header
+                const headers: Record<string, string> = {
+                    'PAYMENT-SIGNATURE': paymentProof,
+                    'X-Payment-Proof': paymentProof // Kept for backwards compatibility
+                };
+
+                let body: BodyInit;
+                if (localFileData) {
+                    const formData = new FormData();
+                    const blob = new Blob([new Uint8Array(localFileData.buffer)], { type: localFileData.mimeType });
+                    formData.append('file', blob, localFileData.filename);
+                    body = formData;
+                } else {
+                    headers['Content-Type'] = 'application/json';
+                    body = JSON.stringify({ fileUrl });
+                }
+
                 const finalResponse = await fetch(targetUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'PAYMENT-SIGNATURE': paymentProof,
-                        'X-Payment-Proof': paymentProof // Kept for backwards compatibility
-                    },
-                    body: JSON.stringify({ fileUrl })
+                    headers,
+                    body
                 });
 
                 if (!finalResponse.ok) {
@@ -236,6 +377,7 @@ export const createTagPerTrackTool = (
 
 /**
  * Creates a LangChain tool specifically configured for extracting both metadata AND lyrics.
+ * Supports local audio files via 'filePath' (read in binary and uploaded) or remote URLs via 'fileUrl'.
  * 
  * @param agentWallet The wallet used to sign the x402 payment proof.
  * @param options Optional configuration (API URL, Builder Code).
@@ -251,18 +393,21 @@ export const createTagPerTrackWithLyricsTool = (
         name: "analyze_music_track_with_lyrics",
         description:
             "Analyzes an audio track or music file to extract complete musical metadata (BPM, genre, mood, key, instruments) AND transcribe full vocal lyrics using AI. " +
-            "Provide the URL of the audio file (.mp3, .wav, .ogg, .flac). " +
+            "Supports local audio files via 'filePath' (read in binary and uploaded) or remote URLs via 'fileUrl'. " +
             "Note: This tool automatically executes a micro-payment of 0.10 USDC via the x402 protocol on Base " +
             "using the agent's wallet signature.",
 
         schema: z.object({
+            filePath: z.string()
+                .optional()
+                .describe("Path to a local audio file on disk (.mp3, .wav, .ogg, .flac). Use this whenever analyzing a local file, recording, or email attachment saved locally."),
             fileUrl: z.string()
-                .url("Must be a valid HTTP/HTTPS URL")
-                .describe("The direct URL of the audio file to analyze (supports mp3, wav, ogg, flac)."),
+                .optional()
+                .describe("The direct publicly accessible URL (HTTP/HTTPS or IPFS) of the audio file to analyze."),
         }),
 
-        func: async ({ fileUrl }) => {
-            return await baseTool.invoke({ fileUrl, extractLyrics: true });
+        func: async ({ filePath, fileUrl }) => {
+            return await baseTool.invoke({ filePath, fileUrl, extractLyrics: true });
         }
     });
 };

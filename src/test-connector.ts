@@ -90,10 +90,31 @@ async function runTest() {
     });
 
     // 3. Simulate an AI agent calling the tool
-    console.log("\n📡 Sending audio analysis request...");
-    const testFileUrl = "https://www.learningcontainer.com/wp-content/uploads/2020/02/Sample-OGG-File.ogg";
+    const inputArg = process.argv.slice(2).find(arg => !arg.startsWith('-'));
+    const withLyrics = process.argv.includes('--lyrics') || process.argv.includes('-l');
 
-    const response = await tagPerTrackTool.invoke({ fileUrl: testFileUrl });
+    let invokeParams: { filePath?: string; fileUrl?: string; extractLyrics?: boolean };
+
+    if (inputArg) {
+      if (inputArg.startsWith('http://') || inputArg.startsWith('https://') || inputArg.startsWith('ipfs://')) {
+        invokeParams = { fileUrl: inputArg, extractLyrics: withLyrics };
+      } else {
+        invokeParams = { filePath: inputArg, extractLyrics: withLyrics };
+      }
+    } else if (process.env.TEST_AUDIO_FILE) {
+      invokeParams = { filePath: process.env.TEST_AUDIO_FILE, extractLyrics: withLyrics };
+    } else {
+      // Default: publicly accessible sample URL so the test works universally for any user out of the box
+      const defaultUrl = process.env.TEST_AUDIO_URL || "https://www.learningcontainer.com/wp-content/uploads/2020/02/Sample-OGG-File.ogg";
+      invokeParams = {
+        fileUrl: defaultUrl,
+        extractLyrics: withLyrics,
+      };
+    }
+
+    console.log(`\n📡 Sending audio analysis request with params:`, invokeParams);
+
+    const response = await tagPerTrackTool.invoke(invokeParams);
 
     console.log("\n✅ Tool Output:");
     console.log(response);
