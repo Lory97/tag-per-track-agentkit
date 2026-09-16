@@ -1,28 +1,29 @@
 # Tag-per-Track AgentKit Tool 🎸🤖
 
-An **Agentic-First** LangChain/AgentKit tool designed to enable AI Agents to perform advanced audio analysis while handling on-chain micro-payments autonomously via the **x402 protocol** (HTTP 402 Payment Required).
+An **Agentic-First** LangChain/AgentKit tool designed to enable AI Agents to perform advanced audio analysis and artist qualification while handling on-chain micro-payments autonomously via the **x402 protocol** (HTTP 402 Payment Required).
 
 ## 🌟 Overview
 
-This tool allows AI agents to analyze audio tracks either from **local files on disk** (`filePath`) or from **remote URLs** (`fileUrl`). In exchange for a micro-payment (e.g., 0.05 USDC for standard metadata, or 0.10 USDC with lyrics extraction on Base), the agent receives a rich JSON payload containing:
-- **BPM** & **Rhythm**
-- **Key** & **Scale**
-- **Genres** (with confidence scores)
-- **Moods** & **Instruments**
-- **Lyrics** (AI speech-to-text vocal transcription when `extractLyrics` is enabled)
+Tag-per-Track equips AI agents with four specialized tools:
+1. **`analyze_music_track`**: Analyzes a local audio file or remote URL to extract musical metadata (**BPM, Key, Scale, Duration, Genres, Moods, Instruments**) with an autonomous micro-payment (0.05 USDC on Base).
+2. **`analyze_music_track_with_lyrics`**: Extracts all musical metadata **and** transcribes vocal lyrics using AI speech-to-text (0.10 USDC on Base).
+3. **`analyze_audio_batch`**: Analyzes multiple tracks in parallel with bounded concurrency (1-5, default 4) and track-by-track error isolation.
+4. **`lookup_artist_stats`**: Retrieves public Spotify traction metrics (**Monthly Listeners, Followers, Popularity Score, Genres**) for A&R qualification and talent scouting (**Free**, no x402 payment required).
 
-What makes this unique is that the agent handles the payment itself using a **Server-Managed Coinbase CDP Wallet** or local private key, signing an **EIP-3009 TransferWithAuthorization** without any human intervention.
+The agent handles payments itself using a **Server-Managed Coinbase CDP Wallet** or local private key, signing an **EIP-3009 TransferWithAuthorization** (EIP-712) without any human intervention.
 
 ## 🚀 Key Features
 
 - **Standardized Payment**: Implements the x402 standard for frictionless monetized APIs.
 - **Local Binary Files & Remote URLs**: Supports local audio files (`filePath`) uploaded via `multipart/form-data` as well as remote URLs (`fileUrl`).
-- **Pre-Payment Safety Validation**: Validates file existence, regular file status, and size limit (50 MB) **before** requesting or signing x402 payments to protect agent funds.
-- **Intelligent Path Detection**: Automatically converts local filesystem paths or `file://` URLs provided in `fileUrl` to binary uploads.
-- **Lyrics & Audio Metadata**: Extracts musical tags and transcribes full vocal lyrics.
-- **Coinbase CDP Integrated**: Native support for Coinbase SDK Managed Wallets.
-- **Agentic Signing**: Uses EIP-712 typed data signing for secure, gasless-for-user transactions.
-- **LangChain Compatible**: Ready to be plugged into any `AgentExecutor` or LangChain agent.
+- **Automatic Audio Compression**: Files larger than 15 MB or uncompressed PCM formats (`.wav`, `.aiff`) are automatically compressed to 128k AAC/M4A via native macOS `afconvert` or `ffmpeg` to reduce transfer latency and prevent memory exhaustion.
+- **Financial Spending Guard**: Configurable spending cap via `MAX_SPENDING_USDC` (default: 0.20 USDC) or tool options to protect agent funds from unexpected invoices.
+- **Reduced EIP-3009 Window**: Authorization validity capped at 5 minutes (300s) to guard against replay attacks.
+- **Pre-Payment Safety Validation**: Validates file existence, format whitelist (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`, `.aac`, `.aiff`), and size limit (50 MB) **before** initiating or signing x402 payments.
+- **Batch Processing**: Parallel execution with controlled concurrency to drastically reduce total processing time.
+- **A&R Artist Qualification**: Instant lookup of Spotify commercial traction metrics.
+- **Coinbase CDP Integrated**: Native support for Coinbase SDK Managed Wallets and Viem.
+- **Base Builder Code Attribution**: ERC-8021 on-chain attribution support out of the box.
 
 ## 🛠 Prerequisites
 
@@ -35,7 +36,7 @@ What makes this unique is that the agent handles the payment itself using a **Se
 ### 1. Installation
 
 ```bash
-npm install
+npm install tag-per-track-agentkit
 ```
 
 ### 2. Environment Variables
@@ -49,69 +50,118 @@ CDP_API_KEY_PRIVATE_KEY="-----BEGIN ANY KEY-----..."
 
 # The Seed for your agent's persistent wallet (keep this safe!)
 CDP_WALLET_SECRET="your-cdp-shared-secret"
+
+# Optional: Local Private Key fallback (alternative to CDP)
+# PRIVATE_KEY="0x..."
+
+# Optional: Maximum spending cap in USDC per transaction (default: 0.20)
+# MAX_SPENDING_USDC=0.20
+
+# Optional: Base Builder Code for on-chain attribution (ERC-8021)
+# BUILDER_CODE="bc_3tdradhx"
 ```
 
 ### 3. Wallet Setup (Provisioning)
 
-If it's your agent's first time, run the setup script to create the wallet. Once created, you will need to manually send some ETH (for gas) and USDC (for payments) to the generated address on Base Mainnet:
+If it's your agent's first time, run the setup script to create the wallet. Once created, send some ETH (for gas) and USDC (for payments) to the generated address on Base Mainnet:
 
 ```bash
 npm run setup-wallet
 ```
 
-*(Note: If you are building/testing on Base Sepolia, you can append `-- testnet` to this command. The script will automatically call the testnet faucet to fund your agent's wallet with free test ETH and USDC).*
+*(Note: On Base Sepolia, append `-- testnet` to automatically call the testnet faucet for free test ETH and USDC).*
 
 ## 💻 Usage Example
 
-To use this tool, your agent needs a wallet capable of signing EIP-712 messages (e.g., using Viem or Coinbase CDP SDK).
-
 ```typescript
-import { createTagPerTrackTool, createTagPerTrackWithLyricsTool } from 'tag-per-track-agentkit';
+import {
+  createTagPerTrackTool,
+  createTagPerTrackWithLyricsTool,
+  createTagPerTrackBatchTool,
+  createLookupArtistStatsTool,
+} from 'tag-per-track-agentkit';
 import { cdpWallet } from './your-cdp-config'; // Custom CDP or Viem setup
 
-// 1. Initialize your agent's tool
-const tagPerTrackTool = createTagPerTrackTool(cdpWallet);
+// 1. Initialize tools
+const tagTool = createTagPerTrackTool(cdpWallet);
 const lyricsTool = createTagPerTrackWithLyricsTool(cdpWallet);
+const batchTool = createTagPerTrackBatchTool(cdpWallet);
+const artistStatsTool = createLookupArtistStatsTool(); // Free, no wallet needed!
 
-// 2. Add to LangChain Agent tools array
-const tools = [tagPerTrackTool, lyricsTool, ...otherTools];
+// 2. Add to your LangChain / AgentKit agent tools array
+const tools = [tagTool, lyricsTool, batchTool, artistStatsTool];
 
-// 3. The Agent can now analyze music from local files or URLs!
-// Example A: Local audio file (e.g. downloaded recording or attachment)
-const localResult = await tagPerTrackTool.invoke({
-  filePath: "./music/my_recording.mp3"
+// --- Example A: Single Local Audio File (0.05 USDC) ---
+const trackResult = await tagTool.invoke({
+  filePath: "./music/demo_track.wav", // Automatically compressed if >15MB
 });
 
-// Example B: Remote URL with full vocal lyrics extraction (0.10 USDC)
-const urlResult = await lyricsTool.invoke({
-  fileUrl: "https://example.com/song.mp3"
+// --- Example B: Remote URL with Lyrics Extraction (0.10 USDC) ---
+const lyricsResult = await lyricsTool.invoke({
+  fileUrl: "https://example.com/vocal_song.mp3",
+});
+
+// --- Example C: Batch Analysis of Multiple Tracks ---
+const batchResult = await batchTool.invoke({
+  filePaths: ["./tracks/track1.mp3", "./tracks/track2.wav"],
+  concurrency: 4,
+});
+
+// --- Example D: Artist Streaming Metrics (Free) ---
+const artistMetrics = await artistStatsTool.invoke({
+  artist_name: "Daft Punk",
 });
 ```
 
-### Tool Parameters
+## 🛠 Tool Reference
 
-- `filePath` (*string, optional*): Path to a local audio file on disk (`.mp3`, `.wav`, `.ogg`, `.flac`). Use this whenever analyzing a local file, recording, or email attachment saved locally. The file will be read in binary and streamed via `multipart/form-data`.
-- `fileUrl` (*string, optional*): The direct publicly accessible URL (HTTP/HTTPS or IPFS) of the audio file to analyze.
-- `extractLyrics` (*boolean, optional*): Set to `true` to transcribe and extract vocal lyrics in addition to metadata. Costs 0.10 USDC instead of 0.05 USDC.
+### 1. `analyze_music_track`
+- **Pricing**: 0.05 USDC on Base via x402.
+- **Parameters**:
+  - `filePath` (*string, optional*): Path to a local audio file on disk (`.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`, `.aac`, `.aiff`).
+  - `fileUrl` (*string, optional*): Direct publicly accessible URL of the audio file.
+  - `extractLyrics` (*boolean, optional*): Set to `true` to also transcribe lyrics (0.10 USDC).
 
-## ⚡ How it Works (The x402 Cycle)
+### 2. `analyze_music_track_with_lyrics`
+- **Pricing**: 0.10 USDC on Base via x402.
+- **Parameters**: `filePath` (*string*), `fileUrl` (*string*).
 
-1. **Pre-Validation**: The tool validates the file locally (size < 50MB, file exists) before initiating any network request.
-2. **Initial Call**: The agent sends a lightweight request to obtain payment instructions. The API returns `HTTP 402 Payment Required`.
-3. **Challenge Extraction**: The `TagPerTrackTool` parses the `PAYMENT-REQUIRED` header or body (`amount`, `asset`, `payTo`).
-4. **EIP-3009 Signing**: The agent signs a `TransferWithAuthorization` EIP-712 message using its wallet.
-5. **Resubmission**: The tool sends the final request with the `PAYMENT-SIGNATURE` header. For local files, the binary data is transmitted via `FormData` (`multipart/form-data`).
-6. **Verification & Execution**: The backend verifies the signature on-chain, settles the payment, and triggers the audio analysis.
+### 3. `analyze_audio_batch`
+- **Pricing**: 0.05 or 0.10 USDC per track on Base via x402.
+- **Parameters**:
+  - `tracks` (*array of objects, optional*): `[{ filePath, fileUrl, extractLyrics }]`
+  - `filePaths` (*string[], optional*): List of local audio file paths.
+  - `fileUrls` (*string[], optional*): List of remote audio URLs.
+  - `extractLyrics` (*boolean, optional*): Global flag for all tracks.
+  - `concurrency` (*number, optional*): Max simultaneous requests (1 to 5, default: 4).
+
+### 4. `lookup_artist_stats`
+- **Pricing**: **Free** (no x402 payment required).
+- **Parameters**:
+  - `artist_name` (*string, required*): Stage name of the artist (e.g., `"Daft Punk"`).
+  - `social_links` (*string[], optional*): Social links for context.
+- **Returns**: Spotify monthly listeners, followers, popularity score (0-100), genres, and Spotify URL.
+
+## ⚡ How it Works (The x402 Flow)
+
+1. **Pre-Validation**: Validates file extension, regular file status, and size (<50MB) locally.
+2. **Selective Compression**: If the audio file is >15MB or uncompressed (`.wav`, `.aiff`), it is compressed to 128k AAC/M4A before uploading.
+3. **402 Challenge**: Sends an initial request. The API returns `HTTP 402 Payment Required` with invoice terms.
+4. **Spending Cap Guard**: Validates requested amount against `MAX_SPENDING_USDC` (default: 0.20 USDC).
+5. **EIP-3009 Signature**: Signs a gasless `TransferWithAuthorization` EIP-712 message (valid for 5 minutes).
+6. **Payment Proof & Execution**: Transmits the request with `PAYMENT-SIGNATURE`. For local files, binary data is read and sent via `multipart/form-data`.
+7. **Settlement**: The backend settles payment on Base Mainnet and returns the analysis metadata.
 
 ## 📁 Project Structure
 
 ```
 tag-per-track-agentkit/
 ├── src/
-│   ├── TagPerTrackTool.ts        # Main LangChain tool (x402 payment cycle & binary upload)
-│   ├── TagPerTrackTool.spec.ts   # Unit test suite
-│   ├── builderCode.ts            # On-chain attribution utilities (ERC-8021)
-│   ├── test-connector.ts         # End-to-end test script
+│   ├── index.ts                  # Main SDK entry point (re-exports tools & types)
+│   ├── TagPerTrackTool.ts        # LangChain tools (x402 payment cycle, compression & batch)
+│   ├── TagPerTrackTool.spec.ts   # Comprehensive unit test suite
+│   ├── builderCode.ts            # Base Builder Code attribution (ERC-8021)
+│   ├── test-connector.ts         # CLI test harness (single, batch, artist stats)
 │   └── setup-wallet.ts           # Wallet provisioning script
 ├── .env.example                  # Environment variable template
 ├── package.json
@@ -120,19 +170,19 @@ tag-per-track-agentkit/
 
 ## 🛠 Scripts
 
-- `npm test` — Runs the unit test suite verifying path resolution, MIME detection, and tool schemas.
-- `npm run test:connector` — Runs an end-to-end test with a default public audio URL.
-  - Test a local audio file: `npm run test:connector -- ./my-track.mp3`
-  - Test with lyrics extraction: `npm run test:connector -- ./my-track.mp3 --lyrics`
-  - Test a custom remote URL: `npm run test:connector -- https://example.com/song.mp3`
+- `npm test` — Runs the unit test suite verifying path resolution, MIME detection, compression, schemas, and guardrails.
+- `npm run test:connector -- [args]` — CLI test harness:
+  - Single track: `npm run test:connector -- ./track.mp3`
+  - With lyrics: `npm run test:connector -- ./track.mp3 --lyrics`
+  - Artist stats: `npm run test:connector -- --artist "Daft Punk"`
+  - Batch analysis: `npm run test:connector -- --batch ./track1.mp3 ./track2.mp3`
 - `npm run setup-wallet` — Provisions the agent's wallet on Base Mainnet (use `-- testnet` for Sepolia).
-- `npm run build` — Compiles the TypeScript code to `dist/`.
-- `npm run clean` — Removes the `dist/` output directory.
+- `npm run build` — Compiles TypeScript to `dist/`.
+- `npm run clean` — Removes the `dist/` build directory.
 
-## API Documentation & Under the Hood
+## API Documentation & Interactive Swagger
 
-This SDK is a wrapper around the core Tag-per-Track API.
-If you want to explore the underlying REST endpoints, inspect the precise JSON schemas returned by our Essentia/TensorFlow models, or test the inference manually, check out our interactive Swagger UI:
+Explore the underlying REST endpoints, test inference manually, or inspect JSON schemas:
 
 👉 **[Tag-per-Track API Swagger Documentation](https://api.tag-per-track.cloud/api/docs)**
 

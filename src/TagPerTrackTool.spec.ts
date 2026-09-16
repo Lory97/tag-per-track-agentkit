@@ -1,19 +1,26 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 import {
     resolveLocalPath,
     isLikelyLocalPath,
     getAudioMimeType,
+    shouldCompressAudio,
+    getMaxSpendingCap,
     createTagPerTrackTool,
     createTagPerTrackWithLyricsTool,
+    createTagPerTrackBatchTool,
+    createLookupArtistStatsTool,
     MAX_LOCAL_FILE_SIZE,
+    COMPRESSION_SIZE_THRESHOLD,
+    DEFAULT_MAX_SPENDING_USDC,
     AgentWallet,
 } from './TagPerTrackTool';
 
 async function runTests() {
     console.log("--------------------------------------------------");
-    console.log("🧪 Running TagPerTrackTool Unit Tests");
+    console.log("🧪 Running TagPerTrackTool Unit Tests (v1.2.0)");
     console.log("--------------------------------------------------");
 
     // 1. Test getAudioMimeType
@@ -26,8 +33,13 @@ async function runTests() {
     assert.strictEqual(getAudioMimeType("song.aac"), "audio/aac");
     assert.strictEqual(getAudioMimeType("song.aiff"), "audio/aiff");
     assert.strictEqual(getAudioMimeType("song.AIF"), "audio/aiff");
-    assert.strictEqual(getAudioMimeType("song.unknown"), "application/octet-stream");
-    console.log("   ✅ getAudioMimeType passed");
+    assert.throws(() => {
+        getAudioMimeType("song.unknown");
+    }, /Unsupported file format/);
+    assert.throws(() => {
+        getAudioMimeType("document.pdf");
+    }, /Unsupported file format/);
+    console.log("   ✅ getAudioMimeType passed (including strict whitelist validation)");
 
     // 2. Test isLikelyLocalPath
     console.log("2. Testing isLikelyLocalPath...");
@@ -50,10 +62,26 @@ async function runTests() {
     assert.strictEqual(resolveLocalPath("./test.mp3"), path.resolve(process.cwd(), "./test.mp3"));
     console.log("   ✅ resolveLocalPath passed");
 
-    // 4. Test MAX_LOCAL_FILE_SIZE
-    console.log("4. Testing MAX_LOCAL_FILE_SIZE limit...");
+    // 4. Test shouldCompressAudio
+    console.log("4. Testing shouldCompressAudio logic...");
+    assert.strictEqual(shouldCompressAudio("song.wav", 1 * 1024 * 1024), true, "Uncompressed WAV should compress");
+    assert.strictEqual(shouldCompressAudio("song.aiff", 2 * 1024 * 1024), true, "Uncompressed AIFF should compress");
+    assert.strictEqual(shouldCompressAudio("song.mp3", 5 * 1024 * 1024), false, "5MB MP3 should NOT compress");
+    assert.strictEqual(shouldCompressAudio("song.m4a", 10 * 1024 * 1024), false, "10MB M4A should NOT compress");
+    assert.strictEqual(shouldCompressAudio("song.mp3", 20 * 1024 * 1024), true, "20MB MP3 (>15MB) should compress");
+    console.log("   ✅ shouldCompressAudio passed");
+
+    // 5. Test getMaxSpendingCap
+    console.log("5. Testing getMaxSpendingCap...");
+    assert.strictEqual(getMaxSpendingCap(), DEFAULT_MAX_SPENDING_USDC, "Defaults to 0.20 USDC (200000 units)");
+    assert.strictEqual(getMaxSpendingCap(0.50), 500_000n, "Accepts explicit custom cap");
+    console.log("   ✅ getMaxSpendingCap passed");
+
+    // 6. Test MAX_LOCAL_FILE_SIZE
+    console.log("6. Testing MAX_LOCAL_FILE_SIZE limit...");
     assert.strictEqual(MAX_LOCAL_FILE_SIZE, 50 * 1024 * 1024);
-    console.log("   ✅ MAX_LOCAL_FILE_SIZE is 50MB");
+    assert.strictEqual(COMPRESSION_SIZE_THRESHOLD, 15 * 1024 * 1024);
+    console.log("   ✅ File size limits verified");
 
     // Mock wallet that shouldn't be called for client-side validation errors
     const mockWallet: AgentWallet = {
@@ -65,43 +93,59 @@ async function runTests() {
 
     const tool = createTagPerTrackTool(mockWallet);
     const lyricsTool = createTagPerTrackWithLyricsTool(mockWallet);
+    const batchTool = createTagPerTrackBatchTool(mockWallet);
+    const artistStatsTool = createLookupArtistStatsTool();
 
-    // 5. Test tool metadata & schema
-    console.log("5. Testing Tool schema and descriptions...");
+    // 7. Test tool schemas and metadata
+    console.log("7. Testing Tool schemas and descriptions...");
     assert.strictEqual(tool.name, "analyze_music_track");
     assert.ok(tool.description.includes("filePath"));
-    assert.ok(tool.description.includes("fileUrl"));
     assert.ok(tool.description.includes("0.05 USDC"));
-    assert.ok(tool.description.includes("0.10 USDC"));
 
     assert.strictEqual(lyricsTool.name, "analyze_music_track_with_lyrics");
-    assert.ok(lyricsTool.description.includes("filePath"));
-    assert.ok(lyricsTool.description.includes("fileUrl"));
     assert.ok(lyricsTool.description.includes("0.10 USDC"));
-    console.log("   ✅ Tool schemas and descriptions verified");
 
-    // 6. Test invocation with missing audio source
-    console.log("6. Testing missing audio source error...");
+    assert.strictEqual(batchTool.name, "analyze_audio_batch");
+    assert.ok(batchTool.description.includes("parallel"));
+
+    assert.strictEqual(artistStatsTool.name, "lookup_artist_stats");
+    assert.ok(artistStatsTool.description.includes("Spotify"));
+    assert.ok(artistStatsTool.description.includes("A&R"));
+    console.log("   ✅ All 4 Tool schemas and descriptions verified");
+
+    // 8. Test invocation with missing audio source
+    console.log("8. Testing missing audio source error...");
     const missingSourceResult = await tool.invoke({});
     assert.ok(missingSourceResult.includes("Missing audio source"));
     console.log("   ✅ Handled missing audio source properly");
 
-    // 7. Test invocation with non-existent local file
-    console.log("7. Testing non-existent local file error...");
+    // 9. Test invocation with non-existent local file
+    console.log("9. Testing non-existent local file error...");
     const nonExistentFileResult = await tool.invoke({ filePath: "/non/existent/path/song.mp3" });
     assert.ok(nonExistentFileResult.includes("Local file not found"));
     console.log("   ✅ Handled non-existent local file properly");
 
-    // 8. Test auto-detection when local path passed in fileUrl
-    console.log("8. Testing auto-detection of local path passed in fileUrl...");
+    // 10. Test auto-detection when local path passed in fileUrl
+    console.log("10. Testing auto-detection of local path passed in fileUrl...");
     const invalidLocalInUrlResult = await tool.invoke({ fileUrl: "./does-not-exist.mp3" });
     assert.ok(invalidLocalInUrlResult.includes("Invalid fileUrl"));
     assert.ok(invalidLocalInUrlResult.includes("cannot be fetched by the remote server"));
     console.log("   ✅ Handled local path in fileUrl properly");
 
-    // 9. Test with self-contained temporary audio file (pre-payment validation)
-    console.log("9. Testing with local audio file (pre-payment validation)...");
-    const fs = await import('fs');
+    // 11. Test batch tool with empty input
+    console.log("11. Testing batch tool empty input validation...");
+    const emptyBatchResult = await batchTool.invoke({});
+    assert.ok(emptyBatchResult.includes("Missing tracks for batch"));
+    console.log("   ✅ Batch tool validated empty input");
+
+    // 12. Test artist stats tool with missing name
+    console.log("12. Testing artist stats tool missing name validation...");
+    const emptyArtistResult = await artistStatsTool.invoke({});
+    assert.ok(emptyArtistResult.includes("Missing required parameter 'artist_name'"));
+    console.log("   ✅ Artist stats tool validated missing name");
+
+    // 13. Test with temporary audio file (pre-payment validation)
+    console.log("13. Testing with local audio file (pre-payment validation)...");
     const tempAudioPath = path.resolve(os.tmpdir(), "tag-per-track-test-sample.mp3");
     fs.writeFileSync(tempAudioPath, Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])); // Minimal valid ID3 header
     try {
