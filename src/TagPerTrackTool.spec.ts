@@ -73,7 +73,7 @@ async function runTests() {
 
     // 5. Test getMaxSpendingCap
     console.log("5. Testing getMaxSpendingCap...");
-    assert.strictEqual(getMaxSpendingCap(), DEFAULT_MAX_SPENDING_USDC, "Defaults to 0.20 USDC (200000 units)");
+    assert.strictEqual(getMaxSpendingCap(), DEFAULT_MAX_SPENDING_USDC, "Defaults to 0.50 USDC (500000 units)");
     assert.strictEqual(getMaxSpendingCap(0.50), 500_000n, "Accepts explicit custom cap");
     console.log("   ✅ getMaxSpendingCap passed");
 
@@ -100,10 +100,10 @@ async function runTests() {
     console.log("7. Testing Tool schemas and descriptions...");
     assert.strictEqual(tool.name, "analyze_music_track");
     assert.ok(tool.description.includes("filePath"));
-    assert.ok(tool.description.includes("0.05 USDC"));
+    assert.ok(tool.description.includes("0.15 USDC"));
 
     assert.strictEqual(lyricsTool.name, "analyze_music_track_with_lyrics");
-    assert.ok(lyricsTool.description.includes("0.10 USDC"));
+    assert.ok(lyricsTool.description.includes("0.25 USDC"));
 
     assert.strictEqual(batchTool.name, "analyze_audio_batch");
     assert.ok(batchTool.description.includes("parallel"));

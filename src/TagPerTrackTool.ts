@@ -25,6 +25,14 @@ export interface Prediction {
     confidence?: number;
 }
 
+export interface AiDetectionResult {
+    checked: boolean;
+    isAi: boolean;
+    confidence: number;
+    verdict: 'HUMAN' | 'AI_GENERATED' | 'UNCERTAIN';
+    status?: string;
+}
+
 export interface AudioAnalysisResult {
     bpm?: number;
     key?: string;
@@ -34,6 +42,8 @@ export interface AudioAnalysisResult {
     moods?: Array<Prediction> | string[];
     instruments?: Array<Prediction> | string[];
     lyrics?: string;
+    aiDetection?: AiDetectionResult;
+    ai_detection?: AiDetectionResult;
     [key: string]: any;
 }
 
@@ -89,8 +99,8 @@ export const MAX_LOCAL_FILE_SIZE = 50 * 1024 * 1024; // 50 MB limit
 export const COMPRESSION_SIZE_THRESHOLD = 15 * 1024 * 1024; // 15 MB
 export const UNCOMPRESSED_AUDIO_EXTENSIONS = new Set(['.wav', '.aiff', '.aif']);
 
-// Default max spending limit: 0.20 USDC (USDC uses 6 decimals on Base: 200,000 units = 0.20 USDC)
-export const DEFAULT_MAX_SPENDING_USDC = 200_000n;
+// Default max spending limit: 0.50 USDC (USDC uses 6 decimals on Base: 500,000 units = 0.50 USDC)
+export const DEFAULT_MAX_SPENDING_USDC = 500_000n;
 
 // EIP-3009 authorization valid for 5 minutes (300 seconds)
 export const EIP3009_VALIDITY_SECONDS = 300;
@@ -300,7 +310,7 @@ export interface TagPerTrackToolOptions {
     apiBaseUrl?: string;
     /** Your Base Builder Code for on-chain attribution (e.g. "bc_xxxxxxxx"). */
     builderCode?: string;
-    /** Maximum spending limit in USDC per call (e.g. 0.20). Overrides MAX_SPENDING_USDC. */
+    /** Maximum spending limit in USDC per call (e.g. 0.50). Overrides MAX_SPENDING_USDC. */
     maxSpendingUsdc?: number;
 }
 
@@ -670,9 +680,9 @@ export const createTagPerTrackTool = (
     return new DynamicStructuredTool({
         name: "analyze_music_track",
         description:
-            "Analyzes a music track or audio file to extract musical metadata (BPM, genre, mood, key, instruments, duration) and optionally vocal lyrics. " +
+            "Analyzes a music track or audio file to extract musical metadata (BPM, genre, mood, key, instruments, duration), AI music detection verdict (HUMAN vs AI_GENERATED Suno/Udio neural vocoders with confidence index in 'ai_detection'), and optionally vocal lyrics. " +
             "Supports local audio files via 'filePath' (read in binary and uploaded) or remote URLs via 'fileUrl'. " +
-            "Note: This tool automatically executes a micro-payment (0.05 USDC for standard analysis, or 0.10 USDC when extractLyrics is enabled) via the x402 protocol on Base " +
+            "Note: This tool automatically executes a micro-payment (0.15 USDC for standard analysis, or 0.25 USDC when extractLyrics is enabled) via the x402 protocol on Base " +
             "using the agent's wallet signature.",
 
         schema: z.object({
@@ -684,7 +694,7 @@ export const createTagPerTrackTool = (
                 .describe("The direct publicly accessible URL (HTTP/HTTPS or IPFS) of the audio file to analyze."),
             extractLyrics: z.boolean()
                 .optional()
-                .describe("Optional: Set to true to transcribe and extract song lyrics in addition to metadata. Costs 0.10 USDC instead of 0.05 USDC."),
+                .describe("Optional: Set to true to transcribe and extract song lyrics in addition to metadata. Costs 0.25 USDC instead of 0.15 USDC."),
         }),
 
         func: async ({ filePath, fileUrl, extractLyrics }) => {
@@ -709,7 +719,7 @@ export const createTagPerTrackTool = (
  * 
  * @param agentWallet The wallet used to sign the x402 payment proof.
  * @param options Optional configuration (API URL, Builder Code, spending cap).
- * @returns A DynamicStructuredTool configured for lyrics extraction (0.10 USDC).
+ * @returns A DynamicStructuredTool configured for lyrics extraction (0.25 USDC).
  */
 export const createTagPerTrackWithLyricsTool = (
     agentWallet: AgentWallet,
@@ -722,7 +732,7 @@ export const createTagPerTrackWithLyricsTool = (
         description:
             "Analyzes an audio track or music file to extract complete musical metadata (BPM, genre, mood, key, instruments, duration) AND transcribe full vocal lyrics using AI. " +
             "Supports local audio files via 'filePath' (read in binary and uploaded) or remote URLs via 'fileUrl'. " +
-            "Note: This tool automatically executes a micro-payment of 0.10 USDC via the x402 protocol on Base " +
+            "Note: This tool automatically executes a micro-payment of 0.25 USDC via the x402 protocol on Base " +
             "using the agent's wallet signature.",
 
         schema: z.object({
@@ -768,11 +778,11 @@ export const createTagPerTrackBatchTool = (
             tracks: z.array(z.object({
                 filePath: z.string().optional().describe("Path to a local audio file on disk."),
                 fileUrl: z.string().optional().describe("Direct public URL of the audio file."),
-                extractLyrics: z.boolean().optional().describe("Whether to extract vocal lyrics for this track (costs 0.10 USDC instead of 0.05 USDC)."),
+                extractLyrics: z.boolean().optional().describe("Whether to extract vocal lyrics for this track (costs 0.25 USDC instead of 0.15 USDC)."),
             })).optional().describe("Array of audio items to analyze in parallel. Each item can specify 'filePath' or 'fileUrl' and optional per-track 'extractLyrics'."),
             filePaths: z.array(z.string()).optional().describe("Convenience shortcut: list of local audio file paths to analyze in parallel."),
             fileUrls: z.array(z.string()).optional().describe("Convenience shortcut: list of remote audio URLs to analyze in parallel."),
-            extractLyrics: z.boolean().optional().describe("Optional global flag: set to true to transcribe and extract vocal lyrics for all tracks in this batch (0.10 USDC per track). Default is false (0.05 USDC per track)."),
+            extractLyrics: z.boolean().optional().describe("Optional global flag: set to true to transcribe and extract vocal lyrics for all tracks in this batch (0.25 USDC per track). Default is false (0.15 USDC per track)."),
             concurrency: z.number().optional().describe("Maximum number of simultaneous parallel requests (1 to 5, default is 4 to respect API rate limits)."),
         }),
 
