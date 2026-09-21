@@ -117,9 +117,7 @@ async function runTest() {
 
     // Mode 2: Batch Analysis
     if (isBatch) {
-      const batchTool = createTagPerTrackBatchTool(wallet, {
-        builderCode: process.env.BUILDER_CODE,
-      });
+      const batchTool = createTagPerTrackBatchTool(wallet);
 
       const items = args.filter(arg => !arg.startsWith('-'));
       const filePaths = items.filter(item => !item.startsWith('http://') && !item.startsWith('https://'));
@@ -145,9 +143,7 @@ async function runTest() {
     }
 
     // Mode 3: Single Track Analysis
-    const tagPerTrackTool = createTagPerTrackTool(wallet, {
-      builderCode: process.env.BUILDER_CODE,
-    });
+    const tagPerTrackTool = createTagPerTrackTool(wallet);
 
     const inputArg = args.find(arg => !arg.startsWith('-'));
     let invokeParams: { filePath?: string; fileUrl?: string; extractLyrics?: boolean };

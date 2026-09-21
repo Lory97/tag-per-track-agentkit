@@ -24,7 +24,6 @@ The agent handles payments itself using a **Server-Managed Coinbase CDP Wallet**
 - **Batch Processing**: Parallel execution with controlled concurrency to drastically reduce total processing time.
 - **A&R Artist Qualification**: Instant lookup of Spotify commercial traction metrics.
 - **Coinbase CDP Integrated**: Native support for Coinbase SDK Managed Wallets and Viem.
-- **Base Builder Code Attribution**: ERC-8021 on-chain attribution support out of the box.
 
 ## 🛠 Prerequisites
 
@@ -57,9 +56,6 @@ CDP_WALLET_SECRET="your-cdp-shared-secret"
 
 # Optional: Maximum spending cap in USDC per transaction (default: 0.50)
 # MAX_SPENDING_USDC=0.50
-
-# Optional: Base Builder Code for on-chain attribution (ERC-8021)
-# BUILDER_CODE="bc_3tdradhx"
 ```
 
 ### 3. Wallet Setup (Provisioning)
@@ -163,7 +159,6 @@ tag-per-track-agentkit/
 │   ├── index.ts                  # Main SDK entry point (re-exports tools & types)
 │   ├── TagPerTrackTool.ts        # LangChain tools (x402 payment cycle, compression & batch)
 │   ├── TagPerTrackTool.spec.ts   # Comprehensive unit test suite
-│   ├── builderCode.ts            # Base Builder Code attribution (ERC-8021)
 │   ├── test-connector.ts         # CLI test harness (single, batch, artist stats)
 │   └── setup-wallet.ts           # Wallet provisioning script
 ├── .env.example                  # Environment variable template

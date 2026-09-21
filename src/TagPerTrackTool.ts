@@ -6,12 +6,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
-import { getBuilderCodeDataSuffix, DEFAULT_BUILDER_CODE } from "./builderCode";
-
 const execFileAsync = promisify(execFile);
-
-// Re-export builder code utilities for consumers
-export { getBuilderCodeDataSuffix, getBuilderCodeFromEnv, DEFAULT_BUILDER_CODE } from "./builderCode";
 
 export interface AudioInput {
     fileUrl?: string;
@@ -101,6 +96,12 @@ export const UNCOMPRESSED_AUDIO_EXTENSIONS = new Set(['.wav', '.aiff', '.aif']);
 
 // Default max spending limit: 0.50 USDC (USDC uses 6 decimals on Base: 500,000 units = 0.50 USDC)
 export const DEFAULT_MAX_SPENDING_USDC = 500_000n;
+
+export const PINNED_PLATFORM_WALLET = '0xD33906178569f35EFF2E1665A14b06b455fF531F';
+export const APPROVED_USDC_CONTRACTS = new Set([
+    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'.toLowerCase(), // Base Mainnet
+    '0x036CbD53842c5426634e7929541eC2318f3dCF7e'.toLowerCase(), // Base Sepolia
+]);
 
 // EIP-3009 authorization valid for 5 minutes (300 seconds)
 export const EIP3009_VALIDITY_SECONDS = 300;
@@ -308,8 +309,6 @@ export interface TagPerTrackToolOptions {
     apiUrl?: string;
     /** The base URL of the Tag-per-Track API. Default: "https://api.tag-per-track.cloud/api" */
     apiBaseUrl?: string;
-    /** Your Base Builder Code for on-chain attribution (e.g. "bc_xxxxxxxx"). */
-    builderCode?: string;
     /** Maximum spending limit in USDC per call (e.g. 0.50). Overrides MAX_SPENDING_USDC. */
     maxSpendingUsdc?: number;
 }
@@ -469,6 +468,22 @@ export async function executeAnalyzeAudio(
             throw new Error("Incomplete payment terms in x402 response (missing asset or payTo address).");
         }
 
+        // Security check: Validate pinned platform wallet recipient
+        const expectedPayTo = (process.env.PLATFORM_WALLET || PINNED_PLATFORM_WALLET).toLowerCase();
+        if (accept.payTo.toLowerCase() !== expectedPayTo) {
+            throw new Error(
+                `Security error: Divergent receiving wallet address detected: server requested payment to "${accept.payTo}", but expected pinned platform wallet is "${expectedPayTo}". Aborting transaction.`
+            );
+        }
+
+        // Security check: Validate approved USDC asset contract
+        const normalizedAsset = accept.asset.toLowerCase();
+        if (!APPROVED_USDC_CONTRACTS.has(normalizedAsset)) {
+            throw new Error(
+                `Security error: Unrecognized asset contract "${accept.asset}". Expected official USDC contract address. Aborting transaction.`
+            );
+        }
+
         // 3. Enforce Financial Spending Cap & Security Guards
         const rawAmount = accept.amount || accept.maxAmountRequired;
         if (!rawAmount) {
@@ -570,7 +585,6 @@ export async function executeAnalyzeAudio(
         // 7. Secondary Call with PAYMENT-SIGNATURE header & deferred file read
         const headers: Record<string, string> = {
             'PAYMENT-SIGNATURE': paymentProof,
-            'X-Payment-Proof': paymentProof // Kept for backwards compatibility
         };
 
         let body: BodyInit;
@@ -668,14 +682,6 @@ export const createTagPerTrackTool = (
     const opts: TagPerTrackToolOptions = typeof options === 'string'
         ? { apiUrl: options }
         : options;
-
-    // Generate ERC-8021 dataSuffix — defaults to Tag-per-Track builder code
-    const builderCode = opts.builderCode || process.env.BUILDER_CODE || DEFAULT_BUILDER_CODE;
-    const dataSuffix = getBuilderCodeDataSuffix([builderCode]);
-
-    if (dataSuffix) {
-        console.log(`[🏗️  BuilderCode] Attribution enabled: ${builderCode}`);
-    }
 
     return new DynamicStructuredTool({
         name: "analyze_music_track",
